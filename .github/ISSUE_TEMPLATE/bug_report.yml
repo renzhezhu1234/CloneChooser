@@ -1,0 +1,29 @@
+name: Bug report / 问题反馈
+description: Report an unexpected launch or a missing chooser.
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: Device, Android version and LSPosed version
+      description: 手机型号、Android 版本和 LSPosed 版本
+    validations:
+      required: true
+  - type: input
+    id: apps
+    attributes:
+      label: Source app → target app
+      description: 来源应用、目标应用及各自版本
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Steps and actual result
+      description: 复现步骤、期望结果和实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Module detection record
+      description: 从模块“查看检测记录”复制相关几行；请勿上传账号、令牌、订单或完整私人链接。

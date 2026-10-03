@@ -1,0 +1,18 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'io.github.clonechooser'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'io.github.clonechooser'
+        minSdk 30
+        targetSdk 36
+        versionCode 5
+        versionName '0.1.4'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+dependencies { compileOnly 'de.robv.android.xposed:api:82' }
