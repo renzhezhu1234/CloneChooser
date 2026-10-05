@@ -7,7 +7,7 @@ import android.content.Intent;
 final class RouteIntents {
     static boolean hasReservedExtras(Intent intent) {
         return intent.hasExtra(Config.ORIGINAL) || intent.hasExtra(Config.MODE)
-                || intent.hasExtra(Config.USER) || intent.hasExtra(Config.RECEIVER);
+                || intent.hasExtra(Config.USER) || intent.hasExtra(Config.RECEIVER) || intent.hasExtra(Config.PROTOCOL);
     }
     static Intent cloneRequest(Intent original, ComponentName target, int user) {
         if (hasReservedExtras(original)) throw new IllegalArgumentException("Reserved extras");
@@ -17,6 +17,7 @@ final class RouteIntents {
         result.putExtra(Config.ORIGINAL, target.flattenToString());
         result.putExtra(Config.MODE, "launch");
         result.putExtra(Config.USER, user);
+        result.putExtra(Config.PROTOCOL, Config.PROTOCOL_VERSION);
         return result;
     }
     static ComponentName destination(Intent request) {
@@ -32,6 +33,7 @@ final class RouteIntents {
         Intent result = new Intent(request);
         result.removeExtra(Config.ORIGINAL); result.removeExtra(Config.MODE);
         result.removeExtra(Config.RECEIVER); result.removeExtra(Config.USER);
+        result.removeExtra(Config.PROTOCOL);
         result.setComponent(target);
         result.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         return result;

@@ -3,5 +3,6 @@
         <item>android</item>
         <item>com.smzdm.client.android</item>
         <item>com.tencent.mm</item>
+        <item>com.xunmeng.pinduoduo</item>
     </string-array>
 </resources>

@@ -15,10 +15,12 @@ final class Config {
     static final String RECEIVER = ID + ".receiver";
     static final String MODE = ID + ".mode";
     static final String USER = ID + ".user";
+    static final String PROTOCOL = ID + ".protocol";
+    static final int PROTOCOL_VERSION = 2;
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("config", Context.MODE_PRIVATE); }
     static Set<String> sources(Context c) {
         return new HashSet<>(prefs(c).getStringSet("sources", new HashSet<>(Arrays.asList(
-                "com.smzdm.client.android", "com.tencent.mm"))));
+                "com.smzdm.client.android", "com.tencent.mm", "com.xunmeng.pinduoduo"))));
     }
     static Bundle snapshot(Context c) {
         Bundle b = new Bundle();

@@ -19,7 +19,7 @@ Checked { & "$bt/aapt2.exe" compile --dir "$main/res" -o "$BuildDir/resources.zi
 [xml]$standaloneManifest = Get-Content "$main/AndroidManifest.xml" -Raw
 $standaloneManifest.manifest.SetAttribute('package', 'io.github.clonechooser')
 $standaloneManifest.Save("$BuildDir/AndroidManifest.xml")
-Checked { & "$bt/aapt2.exe" link -I $android --manifest "$BuildDir/AndroidManifest.xml" -A "$main/assets" --java "$BuildDir/generated" --version-code 5 --version-name '0.1.4' -o "$BuildDir/base.apk" "$BuildDir/resources.zip" }
+Checked { & "$bt/aapt2.exe" link -I $android --manifest "$BuildDir/AndroidManifest.xml" -A "$main/assets" --java "$BuildDir/generated" --version-code 6 --version-name '0.1.5' -o "$BuildDir/base.apk" "$BuildDir/resources.zip" }
 $sources = Get-ChildItem "$main/java" -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
 Checked { & "$Jdk/bin/javac.exe" -encoding UTF-8 -source 8 -target 8 -classpath "$android;$XposedJar" -d "$BuildDir/classes" $sources }
 Checked { & "$Jdk/bin/jar.exe" cf "$BuildDir/classes.jar" -C "$BuildDir/classes" . }
@@ -30,6 +30,6 @@ Checked { & "$bt/zipalign.exe" -f 4 "$BuildDir/unsigned.apk" "$BuildDir/aligned.
 if (!(Test-Path "$BuildDir/development.keystore")) {
     Checked { & "$Jdk/bin/keytool.exe" -genkeypair -keystore "$BuildDir/development.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=CloneChooser Development' }
 }
-Checked { & "$Jdk/bin/java.exe" -jar "$bt/lib/apksigner.jar" sign --ks "$BuildDir/development.keystore" --ks-pass pass:android --key-pass pass:android --out "$BuildDir/CloneChooser-0.1.4.apk" "$BuildDir/aligned.apk" }
-Checked { & "$Jdk/bin/java.exe" -jar "$bt/lib/apksigner.jar" verify --verbose "$BuildDir/CloneChooser-0.1.4.apk" }
-Write-Output "$BuildDir/CloneChooser-0.1.4.apk"
+Checked { & "$Jdk/bin/java.exe" -jar "$bt/lib/apksigner.jar" sign --ks "$BuildDir/development.keystore" --ks-pass pass:android --key-pass pass:android --out "$BuildDir/CloneChooser-0.1.5.apk" "$BuildDir/aligned.apk" }
+Checked { & "$Jdk/bin/java.exe" -jar "$bt/lib/apksigner.jar" verify --verbose "$BuildDir/CloneChooser-0.1.5.apk" }
+Write-Output "$BuildDir/CloneChooser-0.1.5.apk"

@@ -15,7 +15,7 @@ public final class PayloadTest {
         if (!value) throw new AssertionError(label);
         checks++;
     }
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         ComponentName target = new ComponentName("test.target", "test.target.Detail");
         Intent original = new Intent("example.ACTION", Uri.parse("example://product?id=42&coupon=a%2Bb"));
         original.setComponent(target).setPackage(target.getPackageName());
@@ -56,6 +56,17 @@ public final class PayloadTest {
         Intent implicit = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com/product/42"));
         check(target.equals(RouteIntents.restore(RouteIntents.cloneRequest(implicit, target, 10)).getComponent()), "implicit target resolved");
         check(implicit.getComponent() == null, "implicit original unchanged");
+        Intent toMain = RouteIntents.cloneRequest(original, target, 0);
+        check(toMain.getIntExtra(Config.USER, -1) == 0, "main user is a valid destination");
+        check(toMain.getIntExtra(Config.PROTOCOL, -1) == 2, "versioned bridge request");
+        Intent backToMain = RouteIntents.restore(toMain);
+        Intent.class.getDeclaredMethod("prepareToLeaveUser", int.class).invoke(backToMain, 10);
+        java.lang.reflect.Field contentUserHint = Intent.class.getDeclaredField("mContentUserHint");
+        contentUserHint.setAccessible(true);
+        check(contentUserHint.getInt(backToMain) == 10, "clone content URI source user preserved");
+        check(contentUserHint.getInt(original) != 10, "original content user hint unchanged");
+        check("example.provider".equals(original.getClipData().getItemAt(0).getUri().getAuthority()), "source ClipData unchanged after user fixup");
+        check(!backToMain.hasExtra(Config.PROTOCOL), "protocol stripped before target");
         System.out.println("PASS " + checks + " Android payload checks");
     }
 }

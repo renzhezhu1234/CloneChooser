@@ -19,7 +19,7 @@ $android = "$platform/android.jar"
 $testDir = Join-Path $root 'build-local/device-tests'
 New-Item -ItemType Directory -Force "$testDir/classes", "$testDir/dex" | Out-Null
 $sources = @(Get-ChildItem "$root/tests" -Filter '*.java' | Select-Object -ExpandProperty FullName)
-foreach ($name in @('Config', 'RouteIntents', 'HookContract', 'ReceiverTransport')) {
+foreach ($name in @('Config', 'RouteIntents', 'HookContract', 'ReceiverTransport', 'ProfilePolicy')) {
     $sources += "$root/app/src/main/java/io/github/clonechooser/$name.java"
 }
 Checked { & "$Jdk/bin/javac.exe" -encoding UTF-8 -source 8 -target 8 -classpath $android -d "$testDir/classes" $sources }
@@ -28,7 +28,7 @@ Checked { & "$Jdk/bin/java.exe" -cp "$bt/lib/d8.jar" com.android.tools.r8.D8 --m
 Checked { & "$Jdk/bin/jar.exe" cf "$testDir/tests.jar" -C "$testDir/dex" classes.dex }
 Checked { & $Adb @adbArgs push "$testDir/tests.jar" /data/local/tmp/clonechooser-tests.jar }
 try {
-    foreach ($test in @('PayloadTest', 'HookContractTest', 'ReceiverTransportTest')) {
+    foreach ($test in @('PayloadTest', 'HookContractTest', 'ReceiverTransportTest', 'ProfilePolicyTest')) {
         Checked { & $Adb @adbArgs shell "CLASSPATH=/data/local/tmp/clonechooser-tests.jar app_process /system/bin io.github.clonechooser.$test" }
     }
 } finally {

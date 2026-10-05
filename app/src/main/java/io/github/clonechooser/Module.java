@@ -56,8 +56,8 @@ public final class Module implements IXposedHookLoadPackage {
             if ("android".equals(lp.packageName) && "android".equals(lp.processName)) {
                 installSystem(lp.classLoader);
             } else if (!Config.ID.equals(lp.packageName) && !"android".equals(lp.packageName)
-                    && lp.isFirstApplication && android.os.Process.myUid() >= 10000
-                    && android.os.Process.myUid() < 100000) {
+                    && lp.isFirstApplication && android.os.Process.myUid() % 100000 >= 10000
+                    && android.os.Process.myUid() % 100000 < 20000) {
                 installClient(lp.packageName);
             }
         } catch (Throwable t) { log("hook unavailable: " + t.getClass().getSimpleName()); }
@@ -154,7 +154,8 @@ public final class Module implements IXposedHookLoadPackage {
         // An intentionally nonexistent component fails closed if the system hook is missing.
         return new Intent(Intent.ACTION_VIEW)
                 .setComponent(new ComponentName(target.getPackageName(), Config.BRIDGE))
-                .putExtra(Config.ORIGINAL, target.flattenToString()).putExtra(Config.MODE, mode);
+                .putExtra(Config.ORIGINAL, target.flattenToString()).putExtra(Config.MODE, mode)
+                .putExtra(Config.PROTOCOL, Config.PROTOCOL_VERSION);
     }
 
     private static void report(Context context, String status) {
@@ -184,25 +185,26 @@ public final class Module implements IXposedHookLoadPackage {
                 if (!completed.compareAndSet(false, true)) return;
                 handler.removeCallbacks(fallback);
                 if (activity.isFinishing() || activity.isDestroyed()) return;
-                if (code != 0 || data == null) {
+                if (code != 0 || data == null || data.getInt(Config.PROTOCOL, -1) != Config.PROTOCOL_VERSION) {
                     if (!warned) { warned = true; Toast.makeText(activity, "分身检测暂不可用，已按原方式打开", Toast.LENGTH_LONG).show(); }
                     launch(activity, method, receiver, originalArgs); return;
                 }
                 int[] users = data.getIntArray("users");
-                log("probe target=" + target.getPackageName() + " clones=" + (users == null ? 0 : users.length));
+                int sourceUser = android.os.Process.myUid() / 100000;
+                log("probe user=" + sourceUser + " target=" + target.getPackageName() + " instances=" + (users == null ? 0 : users.length));
                 if (users == null || users.length == 0) {
                     log("no clone: direct launch target=" + target.getPackageName());
                     launch(activity, method, receiver, originalArgs); return;
                 }
-                String[] choices = new String[users.length + 1];
-                choices[0] = "主应用";
-                for (int i = 0; i < users.length; i++) choices[i + 1] = users.length == 1 ? "分身应用" : "分身应用 · 用户 " + users[i];
+                if (users.length == 1) {
+                    launchInUser(activity, method, receiver, originalArgs, target, sourceUser, users[0]);
+                    return;
+                }
+                String[] choices = new String[users.length];
+                for (int i = 0; i < users.length; i++) choices[i] = ProfilePolicy.label(users[i], sourceUser);
                 new AlertDialog.Builder(activity).setTitle("打开「" + label + "」")
                         .setItems(choices, (dialog, which) -> {
-                            if (which == 0) { launch(activity, method, receiver, originalArgs); return; }
-                            Intent routed = RouteIntents.cloneRequest((Intent) originalArgs[4], target, users[which - 1]);
-                            Object[] args = originalArgs.clone(); args[4] = routed;
-                            launch(activity, method, receiver, args);
+                            launchInUser(activity, method, receiver, originalArgs, target, sourceUser, users[which]);
                         }).setNegativeButton("取消", null).show();
             }
         };
@@ -211,6 +213,14 @@ public final class Module implements IXposedHookLoadPackage {
         handler.postDelayed(fallback, 2500);
         try { invoke(method, receiver, queryArgs); }
         catch (Throwable t) { log("probe unavailable: " + t.getClass().getSimpleName()); handler.removeCallbacks(fallback); fallback.run(); }
+    }
+
+    private static void launchInUser(Activity activity, Method method, Object receiver, Object[] originalArgs,
+                                     ComponentName target, int sourceUser, int chosenUser) {
+        if (chosenUser == sourceUser) { launch(activity, method, receiver, originalArgs); return; }
+        Intent routed = RouteIntents.cloneRequest((Intent) originalArgs[4], target, chosenUser);
+        Object[] args = originalArgs.clone(); args[4] = routed;
+        launch(activity, method, receiver, args);
     }
 
     private static void installSystem(ClassLoader loader) {
@@ -234,23 +244,29 @@ public final class Module implements IXposedHookLoadPackage {
                         Context context = (Context) XposedHelpers.getObjectField(p.thisObject, "mContext");
                         reportContext = context;
                         // Never accept a caller-supplied UID, package identity or profile relationship.
-                        if (callerUid < 10000 || callerUid >= 100000 || (Integer) p.args[11] != 0
-                                || (Integer) p.args[7] >= 0 || source == null) throw new SecurityException("Unsupported origin");
+                        int sourceUser = ProfilePolicy.callerUser(callerUid, (Integer) p.args[11]);
+                        if ((Integer) p.args[7] >= 0 || source == null
+                                || incoming.getIntExtra(Config.PROTOCOL, -1) != Config.PROTOCOL_VERSION)
+                            throw new SecurityException("Unsupported origin or protocol");
                         long identity = Binder.clearCallingIdentity();
                         List<Integer> users;
                         ComponentName target;
                         String mode;
                         try {
-                            if (context.getPackageManager().getPackageUid(source, 0) != callerUid)
+                            List<Integer> family = activeFamily(context);
+                            if (!family.contains(sourceUser)) throw new SecurityException("Source outside clone family");
+                            Context sourceContext = userContext(context, sourceUser);
+                            reportContext = sourceContext;
+                            if (sourceContext.getPackageManager().getPackageUid(source, 0) != callerUid)
                                 throw new SecurityException("Caller mismatch");
                             stage = "read settings";
-                            if (!allowed(readConfig(context), source)) throw new SecurityException("Source disabled");
+                            if (!allowed(readConfig(sourceContext), source)) throw new SecurityException("Source disabled");
                             target = RouteIntents.destination(incoming);
                             if (target.getPackageName().equals(source) || target.getPackageName().equals(Config.ID))
                                 throw new SecurityException("Invalid destination");
                             mode = incoming.getStringExtra(Config.MODE);
                             stage = "discover clones";
-                            users = availableClones(context, target);
+                            users = availableInstances(context, target, family, sourceUser);
                             if ("probe".equals(mode)) {
                                 stage = "decode callback";
                                 callback = incoming.getParcelableExtra(Config.RECEIVER);
@@ -260,25 +276,26 @@ public final class Module implements IXposedHookLoadPackage {
                             if (callback == null) throw new IllegalArgumentException("Missing framework ResultReceiver");
                             Bundle data = new Bundle(); int[] ids = new int[users.size()];
                             for (int i = 0; i < ids.length; i++) ids[i] = users.get(i);
-                            data.putIntArray("users", ids); callback.send(0, data);
-                            report(context, "0.1.4 检测：" + source + " → " + target.getPackageName() + "；可用分身=" + users);
+                            data.putIntArray("users", ids); data.putInt(Config.PROTOCOL, Config.PROTOCOL_VERSION);
+                            callback.send(0, data);
+                            report(reportContext, "0.1.5 检测：空间 " + sourceUser + " " + source + " → " + target.getPackageName() + "；可用空间=" + users);
                             p.setResult(0); return;
                         }
                         if (!"launch".equals(mode)) throw new SecurityException("Unknown operation");
                         int chosen = incoming.getIntExtra(Config.USER, -1);
-                        if (!users.contains(chosen)) throw new SecurityException("Clone unavailable");
+                        if (!users.contains(chosen) || chosen == sourceUser) throw new SecurityException("Destination unavailable");
                         Intent routed = RouteIntents.restore(incoming);
                         // Preserve content URI origin when passing the original payload across users.
-                        XposedHelpers.callMethod(routed, "prepareToLeaveUser", 0);
+                        XposedHelpers.callMethod(routed, "prepareToLeaveUser", sourceUser);
                         p.args[3] = routed; p.args[11] = chosen;
                         // Narrow exception: authenticated enabled source -> exported clone activity.
                         // Other Android component, grant and background-launch checks still run.
                         p.args[12] = false;
-                        report(context, "0.1.4 分身启动请求：" + source + " → " + target.getPackageName() + "；用户=" + chosen);
+                        report(reportContext, "0.1.5 跨空间启动：" + source + " → " + target.getPackageName() + "；空间 " + sourceUser + " → " + chosen);
                         log("route source=" + source + " target=" + target.getPackageName() + " user=" + chosen);
                     } catch (Throwable error) {
                         log("bridge rejected: " + error.getClass().getSimpleName());
-                        if (reportContext != null) report(reportContext, "0.1.4 失败阶段=" + stage + "；异常="
+                        if (reportContext != null) report(reportContext, "0.1.5 失败阶段=" + stage + "；异常="
                                 + error.getClass().getSimpleName() + (error.getCause() == null ? "" : "/" + error.getCause().getClass().getSimpleName()));
                         // No fallback to the primary account after the user selected a clone.
                         p.setThrowable(new SecurityException("CloneChooser route unavailable"));
@@ -290,25 +307,39 @@ public final class Module implements IXposedHookLoadPackage {
         log("system bridge hooks=" + count);
     }
 
-    private static List<Integer> availableClones(Context context, ComponentName target) {
+    private static Context userContext(Context context, int id) {
+        UserHandle user = (UserHandle) XposedHelpers.callStaticMethod(UserHandle.class, "of", id);
+        return (Context) XposedHelpers.callMethod(context, "createContextAsUser", user, 0);
+    }
+
+    private static List<Integer> activeFamily(Context context) {
         List<Integer> result = new ArrayList<>();
         UserManager manager = (UserManager) context.getSystemService(Context.USER_SERVICE);
         List<?> profiles = (List<?>) XposedHelpers.callMethod(manager, "getProfiles", 0);
         for (Object profile : profiles) {
             String type = (String) XposedHelpers.getObjectField(profile, "userType");
-            if (!"android.os.usertype.profile.CLONE".equals(type)) continue;
-            if (!(Boolean) XposedHelpers.callMethod(profile, "isEnabled")) continue;
             int id = XposedHelpers.getIntField(profile, "id");
-            Object parent = XposedHelpers.callMethod(manager, "getProfileParent", id);
-            if (id <= 0 || parent == null || XposedHelpers.getIntField(parent, "id") != 0) continue;
+            Object parent = id == 0 ? null : XposedHelpers.callMethod(manager, "getProfileParent", id);
+            int parentId = parent == null ? -1 : XposedHelpers.getIntField(parent, "id");
+            if (!ProfilePolicy.isFamilyMember(id, type, parentId,
+                    (Boolean) XposedHelpers.callMethod(profile, "isEnabled"))) continue;
             UserHandle user = (UserHandle) XposedHelpers.callStaticMethod(UserHandle.class, "of", id);
             if (!manager.isUserRunning(user) || !manager.isUserUnlocked(user) || manager.isQuietModeEnabled(user)) continue;
-            Context cloneContext = (Context) XposedHelpers.callMethod(context, "createContextAsUser", user, 0);
+            result.add(id);
+        }
+        java.util.Collections.sort(result);
+        return result;
+    }
+
+    private static List<Integer> availableInstances(Context context, ComponentName target, List<Integer> family, int sourceUser) {
+        List<Integer> result = new ArrayList<>();
+        for (int id : family) {
+            Context targetContext = userContext(context, id);
             try {
-                ActivityInfo info = cloneContext.getPackageManager().getActivityInfo(target, 0);
-                if (info.exported && info.enabled && info.applicationInfo.enabled
+                ActivityInfo info = targetContext.getPackageManager().getActivityInfo(target, 0);
+                if (info.enabled && info.applicationInfo.enabled
                         && (info.applicationInfo.flags & android.content.pm.ApplicationInfo.FLAG_SUSPENDED) == 0
-                        && info.permission == null) result.add(id);
+                        && (id == sourceUser || (info.exported && info.permission == null))) result.add(id);
             } catch (PackageManager.NameNotFoundException ignored) { /* No target in this clone. */ }
         }
         return result;
